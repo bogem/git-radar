@@ -1,104 +1,304 @@
 #! /usr/bin/env bash
-#
-# git-radar
-#
-# A heads up display for git
 
-if [[ "$OSTYPE" == *darwin* ]]; then
-  READLINK_CMD='greadlink'
-else
-  READLINK_CMD='readlink'
+dot_git=""
+cwd=""
+remote=""
+
+prepare_colors() {
+  COLOR_REMOTE_AHEAD="\x01\\033[1;32m\x02"
+  COLOR_REMOTE_BEHIND="\x01\\033[1;31m\x02"
+  COLOR_REMOTE_DIVERGED="\x01\\033[1;33m\x02"
+  COLOR_REMOTE_NOT_UPSTREAM="\x01\\033[1;31m\x02"
+
+  COLOR_LOCAL_AHEAD="\x01\\033[1;32m\x02"
+  COLOR_LOCAL_BEHIND="\x01\\033[1;31m\x02"
+  COLOR_LOCAL_DIVERGED="\x01\\033[1;33m\x02"
+
+  COLOR_CHANGES_STAGED="\x01\\033[1;32m\x02"
+  COLOR_CHANGES_UNSTAGED="\x01\\033[1;31m\x02"
+  COLOR_CHANGES_CONFLICTED="\x01\\033[1;33m\x02"
+  COLOR_CHANGES_UNTRACKED="\x01\\033[1;37m\x02"
+
+  COLOR_BRANCH="\x01\\033[0m\x02"
+  MASTER_SYMBOL="\\x01\\033[0m\\x02\\xF0\\x9D\\x98\\xAE\\x01\\033[0m\\x02"
+
+  RESET_COLOR_LOCAL="\x01\\033[0m\x02"
+  RESET_COLOR_REMOTE="\x01\\033[0m\x02"
+  RESET_COLOR_CHANGES="\x01\\033[0m\x02"
+  RESET_COLOR_BRANCH="\x01\\033[0m\x02"
+}
+
+in_current_dir() {
+  local wd="$(pwd)"
+  if [[ "$wd" == $cwd ]]; then
+    cwd="$wd"
+    return 0
+  else
+    cwd="$wd"
+    return 1
+  fi
+}
+
+dot_git() {
+  dot_git="$(git rev-parse --git-dir 2>/dev/null)"
+  printf '%s' $dot_git
+}
+
+is_repo() {
+  if [[ -n "$(dot_git)" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+commit_short_sha() {
+  printf '%s' "$(git rev-parse --short HEAD 2>/dev/null)"
+}
+
+branch_name() {
+  name="$(git symbolic-ref --short HEAD 2>/dev/null)"
+  retcode="$?"
+  if [[ "$retcode" == "0" ]]; then
+    printf %s "$name"
+  else
+    return 1
+  fi
+}
+
+readable_branch_name() {
+  printf "$COLOR_BRANCH$(branch_name || printf '%s' "detached@$(commit_short_sha)")$RESET_COLOR_BRANCH"
+}
+
+remote_branch_name() {
+  local localRef="\/$(branch_name)$"
+  if [[ -n "$localRef" ]]; then
+    local remoteBranch="$(git for-each-ref --format='%(upstream:short)' refs/heads $localRef 2>/dev/null | grep $localRef)"
+    if [[ -n $remoteBranch ]]; then
+      printf '%s' $remoteBranch
+      return 0
+    else
+      return 1
+    fi
+  fi
+}
+
+commits_behind_of_remote() {
+  remote_branch=${1:-"$(remote_branch_name)"}
+  if [[ -n "$remote_branch" ]]; then
+    git rev-list --left-only --count ${remote_branch}...HEAD
+  else
+    printf '%s' "0"
+  fi
+}
+
+commits_ahead_of_remote() {
+  remote_branch=${1:-"$(remote_branch_name)"}
+  if [[ -n "$remote_branch" ]]; then
+    git rev-list --right-only --count ${remote_branch}...HEAD
+  else
+    printf '%s' "0"
+  fi
+}
+
+remote_behind_of_master() {
+  remote_branch=${1:-"$(remote_branch_name)"}
+  tracked_remote="origin/master"
+  if [[ -n "$remote_branch" && "$remote_branch" != "$tracked_remote" ]]; then
+    git rev-list --left-only --count ${tracked_remote}...${remote_branch} 2>/dev/null || printf '%s' "0"
+  else
+    printf '%s' "0"
+  fi
+}
+
+remote_ahead_of_master() {
+  remote_branch=${1:-"$(remote_branch_name)"}
+  tracked_remote="origin/master"
+  if [[ -n "$remote_branch" && "$remote_branch" != "$tracked_remote" ]]; then
+    git rev-list --right-only --count ${tracked_remote}...${remote_branch} 2>/dev/null || printf '%s' "0"
+  else
+    printf '%s' "0"
+  fi
+}
+
+# Diacritic marks for overlaying an arrow over A D C etc
+#us="\xE2\x83\x97{$reset_color%}"
+#them="\xE2\x83\x96%{$reset_color%}"
+#both="\xE2\x83\xA1%{$reset_color%}"
+
+porcelain_status() {
+  printf '%s' "$(git status --porcelain 2>/dev/null)"
+}
+
+staged_status() {
+  local gitStatus=${1:-"$(porcelain_status)"}
+  local prefix=${2:-""}
+  local suffix=${3:-""}
+
+  local staged_string=""
+  local filesModified="$(printf '%s' "$gitStatus" | grep -oE "M[ACDRM ] " | wc -l | grep -oEi '[1-9][0-9]*')"
+  local filesAdded="$(printf '%s' "$gitStatus" | grep -oE "A[MCDR ] " | wc -l | grep -oEi '[1-9][0-9]*')"
+  local filesDeleted="$(printf '%s' "$gitStatus" | grep -oE "D[AMCR ] " | wc -l | grep -oEi '[1-9][0-9]*')"
+  local filesRenamed="$(printf '%s' "$gitStatus" | grep -oE "R[AMCD ] " | wc -l | grep -oEi '[1-9][0-9]*')"
+  local filesCopied="$(printf '%s' "$gitStatus" | grep -oE "C[AMDR ] " | wc -l | grep -oEi '[1-9][0-9]*')"
+
+  if [ -n "$filesAdded" ]; then
+    staged_string="$staged_string$filesAdded${prefix}A${suffix}"
+  fi
+  if [ -n "$filesDeleted" ]; then
+    staged_string="$staged_string$filesDeleted${prefix}D${suffix}"
+  fi
+  if [ -n "$filesModified" ]; then
+    staged_string="$staged_string$filesModified${prefix}M${suffix}"
+  fi
+  if [ -n "$filesRenamed" ]; then
+    staged_string="$staged_string$filesRenamed${prefix}R${suffix}"
+  fi
+  if [ -n "$filesCopied" ]; then
+    staged_string="$staged_string$filesCopied${prefix}C${suffix}"
+  fi
+  printf '%s' "$staged_string"
+}
+
+conflicted_status() {
+  local gitStatus=${1:-"$(porcelain_status)"}
+  local prefix=${2:-""}
+  local suffix=${3:-""}
+  local conflicted_string=""
+
+  local filesUs="$(printf '%s' "$gitStatus" | grep -oE "[AD]U " | wc -l | grep -oEi '[1-9][0-9]*')"
+  local filesThem="$(printf '%s' "$gitStatus" | grep -oE "U[AD] " | wc -l | grep -oEi '[1-9][0-9]*')"
+  local filesBoth="$(printf '%s' "$gitStatus" | grep -oE "(UU|AA|DD) " | wc -l | grep -oEi '[1-9][0-9]*')"
+
+  if [ -n "$filesUs" ]; then
+    conflicted_string="$conflicted_string$filesUs${prefix}U${suffix}"
+  fi
+  if [ -n "$filesThem" ]; then
+    conflicted_string="$conflicted_string$filesThem${prefix}T${suffix}"
+  fi
+  if [ -n "$filesBoth" ]; then
+    conflicted_string="$conflicted_string$filesBoth${prefix}B${suffix}"
+  fi
+  printf '%s' "$conflicted_string"
+}
+
+unstaged_status() {
+  local gitStatus=${1:-"$(porcelain_status)"}
+  local prefix=${2:-""}
+  local suffix=${3:-""}
+  local unstaged_string=""
+
+  local filesModified="$(printf '%s' "$gitStatus" | grep -oE "[ACDRM ]M " | wc -l | grep -oEi '[1-9][0-9]*')"
+  local filesDeleted="$(printf '%s' "$gitStatus" | grep -oE "[AMCR ]D " | wc -l | grep -oEi '[1-9][0-9]*')"
+
+  if [ -n "$filesDeleted" ]; then
+    unstaged_string="$unstaged_string$filesDeleted${prefix}D${suffix}"
+  fi
+  if [ -n "$filesModified" ]; then
+    unstaged_string="$unstaged_string$filesModified${prefix}M${suffix}"
+  fi
+  printf '%s' "$unstaged_string"
+}
+
+untracked_status() {
+  local gitStatus=${1:-"$(porcelain_status)"}
+  local prefix=${2:-""}
+  local suffix=${3:-""}
+  local untracked_string=""
+
+  local filesUntracked="$(printf '%s' "$gitStatus" | grep "?? " | wc -l | grep -oEi '[1-9][0-9]*')"
+
+  if [ -n "$filesUntracked" ]; then
+    untracked_string="$untracked_string$filesUntracked${prefix}A${suffix}"
+  fi
+  printf '%s' "$untracked_string"
+}
+
+color_changes_status() {
+  local separator="${1:- }"
+
+  local porcelain="$(porcelain_status)"
+  local changes=""
+
+  if [[ -n "$porcelain" ]]; then
+    local staged_changes="$(staged_status "$porcelain" "$COLOR_CHANGES_STAGED" "$RESET_COLOR_CHANGES")"
+    local unstaged_changes="$(unstaged_status "$porcelain" "$COLOR_CHANGES_UNSTAGED" "$RESET_COLOR_CHANGES")"
+    local untracked_changes="$(untracked_status "$porcelain" "$COLOR_CHANGES_UNTRACKED" "$RESET_COLOR_CHANGES")"
+    local conflicted_changes="$(conflicted_status "$porcelain" "$COLOR_CHANGES_CONFLICTED" "$RESET_COLOR_CHANGES")"
+    if [[ -n "$staged_changes" ]]; then
+      staged_changes="$separator$staged_changes"
+    fi
+
+    if [[ -n "$unstaged_changes" ]]; then
+      unstaged_changes="$separator$unstaged_changes"
+    fi
+
+    if [[ -n "$conflicted_changes" ]]; then
+      conflicted_changes="$separator$conflicted_changes"
+    fi
+
+    if [[ -n "$untracked_changes" ]]; then
+      untracked_changes="$separator$untracked_changes"
+    fi
+
+    changes="$staged_changes$conflicted_changes$unstaged_changes$untracked_changes"
+  fi
+  printf "$changes"
+}
+
+color_local_commits() {
+  local separator="${1:- }"
+
+  local green_ahead_arrow="${COLOR_LOCAL_AHEAD}↑$RESET_COLOR_LOCAL"
+  local red_behind_arrow="${COLOR_LOCAL_BEHIND}↓$RESET_COLOR_LOCAL"
+  local yellow_diverged_arrow="${COLOR_LOCAL_DIVERGED}⇵$RESET_COLOR_LOCAL"
+
+  local local_commits=""
+  if remote_branch="$(remote_branch_name)"; then
+    local_ahead="$(commits_ahead_of_remote "$remote_branch")"
+    local_behind="$(commits_behind_of_remote "$remote_branch")"
+
+    if [[ "$local_behind" -gt "0" && "$local_ahead" -gt "0" ]]; then
+      local_commits="$separator$local_behind$yellow_diverged_arrow$local_ahead"
+    elif [[ "$local_behind" -gt "0" ]]; then
+      local_commits="$separator$local_behind$red_behind_arrow"
+    elif [[ "$local_ahead" -gt "0" ]]; then
+      local_commits="$separator$local_ahead$green_ahead_arrow"
+    fi
+  fi
+  printf "$local_commits"
+}
+
+color_remote_commits() {
+  local green_ahead_arrow="${COLOR_REMOTE_AHEAD}←$RESET_COLOR_REMOTE"
+  local red_behind_arrow="${COLOR_REMOTE_BEHIND}→$RESET_COLOR_REMOTE"
+  local yellow_diverged_arrow="${COLOR_REMOTE_DIVERGED}⇄$RESET_COLOR_REMOTE"
+  local not_upstream="${COLOR_REMOTE_NOT_UPSTREAM}⚡$RESET_COLOR_REMOTE"
+
+  if remote_branch="$(remote_branch_name)"; then
+    remote_ahead="$(remote_ahead_of_master "$remote_branch")"
+    remote_behind="$(remote_behind_of_master "$remote_branch")"
+
+    if [[ "$remote_behind" -gt "0" && "$remote_ahead" -gt "0" ]]; then
+      remote="$MASTER_SYMBOL $remote_behind $yellow_diverged_arrow $remote_ahead "
+    elif [[ "$remote_ahead" -gt "0" ]]; then
+      remote="$MASTER_SYMBOL $green_ahead_arrow $remote_ahead "
+    elif [[ "$remote_behind" -gt "0" ]]; then
+      remote="$MASTER_SYMBOL $remote_behind $red_behind_arrow "
+    fi
+  else
+    remote="upstream $not_upstream "
+  fi
+
+  printf "$remote"
+}
+
+if is_repo; then
+  prepare_colors
+  printf " \x01\033[1;30m\x02(\x01\033[0m\x02"
+  color_remote_commits
+  readable_branch_name
+  color_local_commits
+  printf "\x01\033[1;30m\x02)\x01\033[0m\x02"
+  color_changes_status
 fi
-
-dot="$(cd "$(dirname "$([ -L "$0" ] && $READLINK_CMD -f "$0" || echo "$0")")"; pwd)"
-args=$@
-
-if [[ -z $@ ]]; then
-  _git="\033[1;30mgit:(\033[0m"
-  _master="\033[0;37mmaster\033[0m"
-  _my_branch="\033[0;37mmy-branch\033[0m"
-  _endgit="\033[1;30m)\033[0m"
-  _untracked="\033[1;37mA\033[0m"
-  _added_staged="\033[1;32mA\033[0m"
-  _modified_unstaged="\033[1;31mM\033[0m"
-  _local_up="\033[1;32m↑\033[0m"
-  _2_from_master="\xF0\x9D\x98\xAE 2 \033[1;31m→\033[0m "
-  _diverged_from_master="\xF0\x9D\x98\xAE 2 \033[1;33m⇄\033[0m 3 "
-  _not_upstream="upstream \033[1;31m⚡\033[0m "
-  _detached="\033[0;37mdetached@94eac67\033[0m"
-  _conflicted_us="\033[1;33mU\033[0m"
-  _conflicted_them="\033[1;33mT\033[0m"
-  _ahead_master="\xF0\x9D\x98\xAE \033[1;32m←\033[0m"
-  _local_diverged="\033[1;33m⇵\033[0m"
-  _stash="\033[1;33m≡\033[0m"
-  echo "git-radar - a heads up display for git"
-  echo ""
-  echo "examples:"
-  printf "  $_git$_master$_endgit"
-  echo "                  # You are on the master branch and everything is clean"
-  printf "  $_git$_not_upstream$_my_branch$_endgit"
-  echo "    # Fresh branch that we haven't pushed upstream"
-  printf "  $_git$_my_branch$_endgit 2$_untracked"
-  echo "            # Two files created that aren't tracked by git"
-  printf "  $_git$_my_branch$_endgit 1$_added_staged 3$_modified_unstaged"
-  echo "         # 1 new file staged to commit and 3 modifications that we still need to \`git add\`"
-  printf "  $_git$_2_from_master$_my_branch 3$_local_up$_endgit"
-  echo "      # 3 commits made locally ready to push up while master is ahead of us by 2"
-  printf "  $_git$_diverged_from_master$_my_branch$_endgit"
-  echo "       # our commits pushed up, master and my-branch have diverged"
-  printf "  $_git$_detached$_endgit 2${_conflicted_them}3${_conflicted_us}"
-  echo "   # mid rebase, we are detached and have 3 conflicts caused by US and 2 caused by THEM"
-  printf "  $_git$_diverged_from_master$_my_branch 3${_local_diverged}5$_endgit"
-  echo "   # rebase complete, our rewritten commits now need pushed up"
-  printf "  $_git$_ahead_master 3 $_my_branch$_endgit"
-  echo "         # origin/my-branch is up to date with master and has our 3 commits waiting merge"
-  printf "  $_git$_master$_endgit 3$_stash"
-  echo "               # You have 3 stashes stored"
-
-  echo ""
-  echo "usage:"
-  echo "  git-radar [--zsh|--bash|--fish] [--fetch]"
-  echo ""
-  echo "  --fetch  # Fetches your repo asynchronously in the background every 5 mins"
-  echo "  --zsh    # Output prompt using Zsh style color characters"
-  echo "  --bash   # Output prompt using Bash style color characters"
-  echo "  --fish   # Output prompt using fish style color characters"
-  echo ""
-  echo "Bash example:"
-  echo "  export PS1=\"\\W\\\$(git-radar --bash --fetch) \""
-  echo ""
-  echo "  This will show your current directory and the full git-radar."
-  echo "  As an added benefit, if you are in a repo, it will asynchronously"
-  echo "  run \`git fetch\` every 5 mins, so that you are never out of date."
-  echo ""
-  echo "Zsh example:"
-  echo "  export PROMPT=\"%1/%\\\$(git-radar --zsh --fetch) \""
-  echo ""
-  echo "  Same as the Bash but for Zsh."
-  echo ""
-  echo "fish example:"
-  echo "  function fish_prompt"
-  echo "    set_color \$fish_color_cwd"
-  echo "    echo -n (prompt_pwd)"
-  echo "    git-radar --fish -fetch"
-  echo "    set_color normal"
-  echo "    echo -n ' > '"
-  echo "  end"
-  echo ""
-  echo "  Same as the Bash but for fish."
-  exit
-fi
-while [[ $# > 0 ]];do
-  command="$1"
-  shift
-
-  if [[ "$command" == "--fetch" ]]; then
-    nohup $dot/fetch.sh >/dev/null 2>&1 &
-  fi
-  if [[ "$command" == "--zsh" ]]; then
-    $dot/prompt.zsh $args
-  fi
-  if [[ "$command" == "--bash" || "$command" == "--fish" ]]; then
-    $dot/prompt.bash $args
-  fi
-done
