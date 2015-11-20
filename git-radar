@@ -1,7 +1,6 @@
 #! /usr/bin/env bash
 
 dot_git=""
-cwd=""
 remote=""
 
 prepare_colors() {
@@ -26,17 +25,6 @@ prepare_colors() {
   RESET_COLOR_REMOTE="\x01\\033[0m\x02"
   RESET_COLOR_CHANGES="\x01\\033[0m\x02"
   RESET_COLOR_BRANCH="\x01\\033[0m\x02"
-}
-
-in_current_dir() {
-  local wd="$(pwd)"
-  if [[ "$wd" == $cwd ]]; then
-    cwd="$wd"
-    return 0
-  else
-    cwd="$wd"
-    return 1
-  fi
 }
 
 dot_git() {
