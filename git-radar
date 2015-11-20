@@ -121,11 +121,6 @@ remote_ahead_of_master() {
   fi
 }
 
-# Diacritic marks for overlaying an arrow over A D C etc
-#us="\xE2\x83\x97{$reset_color%}"
-#them="\xE2\x83\x96%{$reset_color%}"
-#both="\xE2\x83\xA1%{$reset_color%}"
-
 porcelain_status() {
   printf '%s' "$(git status --porcelain 2>/dev/null)"
 }
