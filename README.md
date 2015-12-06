@@ -1,5 +1,5 @@
-#Lightweight git-radar
-It's lightweight one-file version of git-radar 0.3.2
+#Mini git-radar
+It's lightweight and stable one-file version of git-radar 0.3.2
 
 **Only for bash/fish (not for `zsh`) and for mac**
 
@@ -10,7 +10,7 @@ And without fetch function
 More info about git-radar you can find [here](https://github.com/michaeldfallen/git-radar)
 ##Install
 ```
-git clone https://github.com/bogem/git-radar
+git clone https://github.com/bogem/mini-git-radar
 cd git-radar
 make install
 ```
