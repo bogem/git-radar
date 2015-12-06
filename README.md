@@ -11,7 +11,7 @@ More info about git-radar you can find [here](https://github.com/michaeldfallen/
 ##Install
 ```
 git clone https://github.com/bogem/mini-git-radar
-cd git-radar
+cd mini-git-radar
 make install
 ```
 
@@ -20,5 +20,5 @@ For installation help:
 `make`
 
 ##Usage
-Same as standard version but without args. Just `git-radar`
+Same as standard version but without args. Just `mini-git-radar`
 
