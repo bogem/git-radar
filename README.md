@@ -1,11 +1,9 @@
 #Mini git-radar
 It's lightweight and stable one-file version of git-radar 0.3.2
 
-**Only for bash/fish (not for `zsh`) and for mac**
+**Only for bash/fish (not for `zsh`) and only for Mac**
 
-It isn't customizable. Only standard settings.
-
-And without fetch function
+It isn't customizable. Only standard settings. And without fetch function
 
 More info about git-radar you can find [here](https://github.com/michaeldfallen/git-radar)
 ##Install
